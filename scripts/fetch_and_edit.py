@@ -126,25 +126,33 @@ def vertical_crop(src: Path) -> Path:
 # ── GPT title/description ────────────────────────────────────────────────────
 def gen_meta(orig_title: str, src_url: str) -> Path:
     """
-    Ask GPT-4o mini for PT-BR title + description using openai>=1.0.0 interface.
+    Try GPT-4o for PT-BR metadata; on rate‐limit or error, use a basic fallback.
     """
+    import openai, json, tempfile
+    from pathlib import Path
     prompt = (
         "Crie JSON com 'titulo' (≤50 chars) e 'descricao' (≤120 chars) "
         f"em PT-BR para vídeo ASMR cujo gatilho é: {orig_title!r}"
     )
-    # New call for openai-python v1.x:
-    resp = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.6,
-    )
-    content = resp["choices"][0]["message"]["content"]
-    meta = json.loads(content)
+    try:
+        resp = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.6,
+        )
+        content = resp["choices"][0]["message"]["content"]
+        meta = json.loads(content)
+    except Exception as e:
+        print(f"[WARN] GPT failed ({e}); using fallback metadata")
+        meta = {
+            "titulo": f"ASMR: {orig_title[:45]}",
+            "descricao": "Vídeo ASMR gerado automaticamente para relaxar.",
+        }
     meta["credit"] = src_url
-
     out = Path(tempfile.mkdtemp()) / "meta.json"
     out.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
     return out
+
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
