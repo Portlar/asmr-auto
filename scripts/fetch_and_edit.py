@@ -125,23 +125,26 @@ def vertical_crop(src: Path) -> Path:
 
 # ── GPT title/description ────────────────────────────────────────────────────
 def gen_meta(orig_title: str, src_url: str) -> Path:
-    prompt = textwrap.dedent(f"""
-        Gere JSON com:
-        - titulo (<=50 chars)
-        - descricao (<=120 chars)
-        Tema/Trigger: {orig_title!r}  (vídeo ASMR)
-        Escrita em português.
-    """)
-    resp = openai.ChatCompletion.create(
+    """
+    Ask GPT-4o mini for PT-BR title + description using openai>=1.0.0 interface.
+    """
+    prompt = (
+        "Crie JSON com 'titulo' (≤50 chars) e 'descricao' (≤120 chars) "
+        f"em PT-BR para vídeo ASMR cujo gatilho é: {orig_title!r}"
+    )
+    # New call for openai-python v1.x:
+    resp = openai.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
     )
-    meta   = json.loads(resp.choices[0].message.content)
+    content = resp["choices"][0]["message"]["content"]
+    meta = json.loads(content)
     meta["credit"] = src_url
-    mfile  = Path(tempfile.mkdtemp()) / "meta.json"
-    mfile.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-    return mfile
+
+    out = Path(tempfile.mkdtemp()) / "meta.json"
+    out.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+    return out
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
