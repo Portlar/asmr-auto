@@ -1,34 +1,12 @@
-name: ASMR-67s
-on:
-  schedule:
-    - cron: '30 10 * * *'
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ─── Escrever os JSONs a partir dos Secrets ────────────────────
-      - name: Escrever credentials.json
+      - name: Install ffmpeg
         run: |
-          echo "${{ secrets.YOUTUBE_CRED_JSON }}" > credentials.json
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-      - name: Escrever token.json
-        run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_JSON }}" > token.json
-
-      # ─── Executar o bot (inclui upload real para YouTube) ──────────
-      - name: Run ASMR bot and upload
+      - name: Run ASMR bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/fetch_and_edit.py
