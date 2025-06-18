@@ -15,6 +15,10 @@ SEARCH_QUERIES = [
 ]
 
 def yt_search_cc(query: str, n: int = 30):
+    """
+    Usa yt-dlp para buscar vídeos Creative Commons.
+    Se o comando falhar (exit≠0), devolve lista vazia para forçar novo termo.
+    """
     cmd = [
         "yt-dlp",
         f"ytsearch{n}:{query} creative commons",
@@ -22,8 +26,13 @@ def yt_search_cc(query: str, n: int = 30):
         "--skip-download",
         "--no-playlist",
     ]
-    out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
-    return [json.loads(l) for l in out.strip().splitlines()]
+    try:
+        out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+        return [json.loads(l) for l in out.strip().splitlines()]
+    except subprocess.CalledProcessError:
+        print(f"[WARN] yt-dlp search failed for query: {query!r}")
+        return []          # faz pick_video() tentar outro termo
+
 
 def pick_video():
     for _ in range(5):
