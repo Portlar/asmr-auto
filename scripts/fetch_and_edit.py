@@ -23,17 +23,39 @@ PIXABAY_IDS = [
 ]
 PIXABAY_KEY = "pixabay"  # no key needed for direct download links
 
-def pixabay_download(tmpdir: Path) -> Path:
-    vid_id = random.choice(PIXABAY_IDS)
-    url = f"https://cdn.pixabay.com/videvo_download/medium/{vid_id}.mp4"
+def pixabay_download(tmpdir: Path) -> tuple[Path,str,str]:
+    """
+    Try downloading one of the known Pixabay CC-0 videos.
+    If all fail, generate a 10s blank test clip via ffmpeg.
+    Returns (file_path, title, source_url).
+    """
+    import requests
+
+    for vid_id in PIXABAY_IDS:
+        url = f"https://cdn.pixabay.com/videvo_download/medium/{vid_id}.mp4"
+        dst = tmpdir / "src.mp4"
+        try:
+            print(f"[INFO] Trying Pixabay clip {vid_id} → {url}")
+            r = requests.get(url, timeout=30, stream=True)
+            r.raise_for_status()
+            with open(dst, "wb") as fp:
+                for chunk in r.iter_content(chunk_size=1<<16):
+                    fp.write(chunk)
+            return dst, f"Pixabay clip {vid_id}", url
+        except Exception as e:
+            print(f"[WARN] Pixabay download failed for {vid_id}: {e}")
+
+    # All Pixabay attempts failed → generate blank test video
+    print("[INFO] All Pixabay downloads failed, generating blank clip with FFmpeg")
     dst = tmpdir / "src.mp4"
-    print("[INFO] Downloading fallback clip from Pixabay →", url)
-    r = requests.get(url, timeout=60, stream=True)
-    r.raise_for_status()
-    with open(dst, "wb") as fp:
-        for chunk in r.iter_content(chunk_size=1 << 16):
-            fp.write(chunk)
-    return dst, f"Pixabay clip {vid_id}", url
+    # 10 seconds, 1080x1920, color test pattern + silent audio
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "testsrc=size=1080x1920:duration=10:rate=30",
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-shortest", str(dst)
+    ], check=True)
+    return dst, "Generated test clip", "generated://test"
 
 # ── YouTube search helpers ───────────────────────────────────────────────────
 def yt_search(query: str, n: int = 20):
