@@ -14,6 +14,18 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install -r requirements.txt
+            - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Run bot
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # (optional) YOUTUBE_COOKIES if you set it
+        run: python scripts/fetch_and_edit.py
+
       - name: Run bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
