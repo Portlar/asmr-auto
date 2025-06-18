@@ -18,19 +18,15 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run ASMR bot (gera o vídeo)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          python scripts/fetch_and_edit.py
+        run: python scripts/fetch_and_edit.py
 
       - name: Publicar artefato do clip
-        uses: - uses: actions/upload-artifact@v3.1.2
-       
-
+        uses: actions/upload-artifact@v3.1.2
         with:
           name: asmr-67s-clip
           path: '**/final.mp4'
