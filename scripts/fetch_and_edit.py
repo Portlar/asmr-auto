@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import os, subprocess, json, tempfile, random, time, sys
+import os, subprocess, json, tempfile, random, time, sys, textwrap, shutil
 from pathlib import Path
-import openai
+import openai, requests
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+COOKIE_TEXT   = os.getenv("YOUTUBE_COOKIES")         # may be None
 
-# ── 1. Queries & fallback IDs ────────────────────────────────────────────────
 SEARCH_QUERIES = [
     "asmr tapping",
     "asmr rain sounds",
@@ -15,17 +15,28 @@ SEARCH_QUERIES = [
     "asmr spray",
 ]
 
-FALLBACK_VIDEO_IDS = [
-    # CC-BY or CC-0 videos tested 2025-06-18
-    "5qgJ-w2rGJM",  # Rain on tent – 10 h
-    "x4eRcG5YY7I",  # Wood tapping
-    "4fG0pRx6Q1k",  # Magazine page flipping
-    "pDm3OziPbtA",  # Mechanical keyboard
-    "2tmSQ0ap8Gc",  # Soft brush sounds
+# ── Pixabay fallback (CC-0) ──────────────────────────────────────────────────
+PIXABAY_IDS = [
+    "48993",  # Calm‐rain
+    "16606",  # Typing
+    "17660",  # Wood tapping
 ]
+PIXABAY_KEY = "pixabay"  # no key needed for direct download links
 
-# ── 2. Helpers ───────────────────────────────────────────────────────────────
-def yt_search_cc(query: str, n: int = 30):
+def pixabay_download(tmpdir: Path) -> Path:
+    vid_id = random.choice(PIXABAY_IDS)
+    url = f"https://cdn.pixabay.com/videvo_download/medium/{vid_id}.mp4"
+    dst = tmpdir / "src.mp4"
+    print("[INFO] Downloading fallback clip from Pixabay →", url)
+    r = requests.get(url, timeout=60, stream=True)
+    r.raise_for_status()
+    with open(dst, "wb") as fp:
+        for chunk in r.iter_content(chunk_size=1 << 16):
+            fp.write(chunk)
+    return dst, f"Pixabay clip {vid_id}", url
+
+# ── YouTube search helpers ───────────────────────────────────────────────────
+def yt_search(query: str, n: int = 20):
     cmd = [
         "yt-dlp",
         f"ytsearch{n}:{query} creative commons",
@@ -37,44 +48,50 @@ def yt_search_cc(query: str, n: int = 30):
         out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
         return [json.loads(l) for l in out.strip().splitlines()]
     except subprocess.CalledProcessError:
-        print(f"[WARN] yt-dlp search failed for query: {query!r}")
+        print(f"[WARN] yt-dlp search failed for {query!r}")
         return []
 
 def pick_video():
-    # 1) try live search
-    for _ in range(6):  # 6 × random query
-        vids = yt_search_cc(random.choice(SEARCH_QUERIES))
+    for _ in range(6):
+        vids = yt_search(random.choice(SEARCH_QUERIES))
         if vids:
             return random.choice(vids)
-    # 2) fallback list
-    print("[INFO] All searches failed – using fallback CC video list.")
-    vid_id = random.choice(FALLBACK_VIDEO_IDS)
-    return {
-        "webpage_url": f"https://www.youtube.com/watch?v={vid_id}",
-        "title": f"Fallback video {vid_id}",
-    }
+    return None  # give up
 
-def safe_download(url: str) -> Path:
-    for attempt in range(5):
-        tmp = Path(tempfile.mkdtemp())
-        out = tmp / "src.mp4"
+def safe_download_youtube(url: str) -> Path | None:
+    tmpdir = Path(tempfile.mkdtemp())
+    dst    = tmpdir / "src.mp4"
+    cmd = [
+        "yt-dlp",
+        "-f", "bv*+ba/best",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "--no-playlist",
+        "--throttled-rate", "500K",
+        "-o", str(dst),
+        url,
+    ]
+    if COOKIE_TEXT:
+        cfile = tmpdir / "cookies.txt"
+        cfile.write_text(COOKIE_TEXT, encoding="utf-8")
+        cmd[0:0] = ["yt-dlp"]  # just to align indices
+        cmd.extend(["--cookies", str(cfile)])
+
+    for attempt in range(3):
         try:
-            subprocess.run(
-                ["yt-dlp", "-f", "bv*+ba/best", "-o", str(out), url],
-                check=True,
-            )
-            return out
+            subprocess.run(cmd, check=True)
+            return dst
         except subprocess.CalledProcessError:
-            print(f"[WARN] yt-dlp failed (try {attempt+1}) – new video")
-            url = pick_video()["webpage_url"]
+            print(f"[WARN] yt-dlp blocked (attempt {attempt+1})")
             time.sleep(2)
-    raise RuntimeError("All downloads failed.")
+    return None
 
+# ── FFmpeg crop ──────────────────────────────────────────────────────────────
 def vertical_crop(src: Path) -> Path:
     dst = src.with_name("final.mp4")
     subprocess.run(
         [
-            "ffmpeg", "-i", str(src),
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-i", str(src),
             "-ss", "0", "-t", "67",
             "-vf", "crop=in_h*9/16:in_h,scale=1080:1920",
             "-af", "loudnorm",
@@ -84,31 +101,43 @@ def vertical_crop(src: Path) -> Path:
     )
     return dst
 
+# ── GPT title/description ────────────────────────────────────────────────────
 def gen_meta(orig_title: str, src_url: str) -> Path:
-    prompt = (
-        "Crie JSON com 'titulo' (≤50 chars) e 'descricao' (≤120 chars) "
-        f"em PT-BR para vídeo ASMR cujo gatilho é: {orig_title!r}"
-    )
+    prompt = textwrap.dedent(f"""
+        Gere JSON com:
+        - titulo (<=50 chars)
+        - descricao (<=120 chars)
+        Tema/Trigger: {orig_title!r}  (vídeo ASMR)
+        Escrita em português.
+    """)
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
     )
-    meta = json.loads(resp.choices[0].message.content)
+    meta   = json.loads(resp.choices[0].message.content)
     meta["credit"] = src_url
-    p = Path(tempfile.mkdtemp()) / "meta.json"
-    p.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-    return p
+    mfile  = Path(tempfile.mkdtemp()) / "meta.json"
+    mfile.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+    return mfile
 
-# ── 3. Main ──────────────────────────────────────────────────────────────────
+# ── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
-    v = pick_video()
-    url, title = v["webpage_url"], v["title"]
-    print("[INFO] video:", title, url)
+    vid = pick_video()
+    if vid:
+        url, title = vid["webpage_url"], vid["title"]
+        print("[INFO] Selected YouTube:", title, url)
+        src = safe_download_youtube(url)
+        if not src:
+            print("[WARN] YouTube download failed – switching to Pixabay.")
+            tmpdir = Path(tempfile.mkdtemp())
+            src, title, url = pixabay_download(tmpdir)
+    else:
+        tmpdir = Path(tempfile.mkdtemp())
+        src, title, url = pixabay_download(tmpdir)
 
-    src = safe_download(url)
-    clip = vertical_crop(src)
-    meta = gen_meta(title, url)
+    clip  = vertical_crop(src)
+    meta  = gen_meta(title, url)
 
     subprocess.run([sys.executable, "scripts/upload_youtube.py", str(clip), str(meta)])
     subprocess.run([sys.executable, "scripts/upload_instagram.py", str(clip), str(meta)])
