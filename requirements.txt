@@ -3,6 +3,5 @@ moviepy
 ffmpeg-python
 google-api-python-client
 facebook-business
-tiktok-uploader==0.7.4
 openai
 python-dotenv
