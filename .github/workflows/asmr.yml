@@ -1,12 +1,30 @@
+name: ASMR-67s
+on:
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install ffmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
-      - name: Run ASMR bot
+      - name: Run ASMR bot (gera o vídeo)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/fetch_and_edit.py
+
+      - name: Publicar artefato do clip
+        uses: actions/upload-artifact@v3
+        with:
+          name: asmr-67s-clip
+          path: '**/final.mp4'
