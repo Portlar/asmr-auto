@@ -9,8 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -20,38 +19,38 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ─── grava as credenciais (secrets vazios geram arquivo vazio, sem erro) ───
       - name: Gravar credentials.json
-        run: echo "${{ secrets.YOUTUBE_CRED_JSON }}" > credentials.json
+        run: |
+          cat << 'EOF' > credentials.json
+          ${{ secrets.YOUTUBE_CRED_JSON }}
+          EOF
 
       - name: Gravar token.json
-        run: echo "${{ secrets.YOUTUBE_TOKEN_JSON }}" > token.json
+        run: |
+          cat << 'EOF' > token.json
+          ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          EOF
 
-      # ─── instala ffmpeg ───────────────────────────────────────────────────────
       - name: Install ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # ─── gera vídeo e tenta upload ───────────────────────────────────────────
       - name: Run ASMR bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python scripts/fetch_and_edit.py || true   # não falha o job se upload der erro
+          python scripts/fetch_and_edit.py || true
 
-      # ─── copia o final.mp4 do /tmp para workspace ────────────────────────────
       - name: Copiar final.mp4 para o workspace
         run: |
           CLIP=$(find /tmp -name final.mp4 | head -n 1 || true)
           if [ -n "$CLIP" ]; then
             cp "$CLIP" "$GITHUB_WORKSPACE/final.mp4"
-            echo "Clip copiado para workspace"
           else
             echo "::warning ::Nenhum final.mp4 encontrado"
           fi
 
-      # ─── publica o artefato com o clipe ───────────────────────────────────────
       - name: Publicar artefato do clip
         uses: actions/upload-artifact@v4
         with:
