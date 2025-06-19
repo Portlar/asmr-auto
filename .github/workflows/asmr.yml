@@ -9,7 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -19,42 +20,41 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ─── escrever credenciais se existirem ──────────────────────────
-      - name: Escrever credentials.json
-        if: ${{ secrets.YOUTUBE_CRED_JSON != '' }}
+      # ─── grava as credenciais (secrets vazios geram arquivo vazio, sem erro) ───
+      - name: Gravar credentials.json
         run: echo "${{ secrets.YOUTUBE_CRED_JSON }}" > credentials.json
 
-      - name: Escrever token.json
-        if: ${{ secrets.YOUTUBE_TOKEN_JSON != '' }}
+      - name: Gravar token.json
         run: echo "${{ secrets.YOUTUBE_TOKEN_JSON }}" > token.json
 
-      # ─── instalar ffmpeg (necessário para corte) ────────────────────
+      # ─── instala ffmpeg ───────────────────────────────────────────────────────
       - name: Install ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # ─── gerar clipe (e tentar upload YouTube se token existir) ─────
+      # ─── gera vídeo e tenta upload ───────────────────────────────────────────
       - name: Run ASMR bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/fetch_and_edit.py || true   # não falhar workflow
+        run: |
+          python scripts/fetch_and_edit.py || true   # não falha o job se upload der erro
 
-      # ─── copiar final.mp4 do /tmp para workspace ────────────────────
+      # ─── copia o final.mp4 do /tmp para workspace ────────────────────────────
       - name: Copiar final.mp4 para o workspace
         run: |
           CLIP=$(find /tmp -name final.mp4 | head -n 1 || true)
           if [ -n "$CLIP" ]; then
             cp "$CLIP" "$GITHUB_WORKSPACE/final.mp4"
-            echo "Clip copiado para $GITHUB_WORKSPACE/final.mp4"
+            echo "Clip copiado para workspace"
           else
             echo "::warning ::Nenhum final.mp4 encontrado"
           fi
 
-      # ─── publicar artefato (v4) ─────────────────────────────────────
+      # ─── publica o artefato com o clipe ───────────────────────────────────────
       - name: Publicar artefato do clip
         uses: actions/upload-artifact@v4
         with:
           name: asmr-67s-clip
           path: final.mp4
-          if-no-files-found: warn   # não quebra o job
+          if-no-files-found: warn
